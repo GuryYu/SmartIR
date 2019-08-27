@@ -113,6 +113,7 @@ class SmartIRClimate(ClimateDevice, RestoreEntity):
         self._commands = device_data['commands']
 
         self._target_temperature = self._min_temperature
+        self._last_hvac_mode = HVAC_MODE_OFF
         self._hvac_mode = HVAC_MODE_OFF
         self._current_fan_mode = self._fan_modes[0]
         self._last_on_operation = None
@@ -141,6 +142,7 @@ class SmartIRClimate(ClimateDevice, RestoreEntity):
         
         if last_state is not None:
             self._hvac_mode = last_state.state
+            self._last_hvac_mode = last_state.state
             self._current_fan_mode = last_state.attributes['fan_mode']
             self._target_temperature = last_state.attributes['temperature']
 
@@ -291,6 +293,7 @@ class SmartIRClimate(ClimateDevice, RestoreEntity):
 
     async def async_set_hvac_mode(self, hvac_mode):
         """Set operation mode."""
+        self._last_hvac_mode = self._hvac_mode
         self._hvac_mode = hvac_mode
         
         if not hvac_mode == HVAC_MODE_OFF:
@@ -328,13 +331,22 @@ class SmartIRClimate(ClimateDevice, RestoreEntity):
             if operation_mode.lower() == HVAC_MODE_OFF:
                 command = self._commands['off']
             else:
+                if (self._commands['on'] is not None) and self._last_hvac_mode.lower() == HVAC_MODE_OFF:
+                    command = self._commands['on']
+                    try:
+                        _LOGGER.info("send on commond.")
+                        await self._controller.send(command)
+                    except Exception as e:
+                        _LOGGER.exception(e)
                 command = self._commands[operation_mode][fan_mode][target_temperature]
 
             try:
                 await self._controller.send(command)
             except Exception as e:
                 _LOGGER.exception(e)
-            
+
+            self._last_hvac_mode = self._hvac_mode
+
     async def _async_temp_sensor_changed(self, entity_id, old_state, new_state):
         """Handle temperature sensor changes."""
         if new_state is None:
